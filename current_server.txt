@@ -1,0 +1,621 @@
+1:import express from "express";
+2:import cors from "cors";
+3:import path from "path";
+4:import fs from "fs";
+5:import { fileURLToPath } from "url";
+6:import dotenv from "dotenv";
+7:import { MongoClient, ObjectId, Db } from "mongodb";
+8:import { MercadoPagoConfig, Preference } from "mercadopago";
+9:import jwt from "jsonwebtoken";
+10:import admin from "firebase-admin";
+11:
+12:dotenv.config();
+13:
+14:// --- Final Polish for production runtime ---
+15:const __filename = fileURLToPath(import.meta.url);
+16:const __dirname = path.dirname(__filename);
+17:
+18:const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
+19:const firebaseConfig = fs.existsSync(firebaseConfigPath) ? JSON.parse(fs.readFileSync(firebaseConfigPath, "utf8")) : {};
+20:
+21:// --- Environment Variables ---
+22:const MONGO_URL = process.env.MONGO_URL;
+23:const DB_NAME = process.env.DB_NAME || "amarena_db";
+24:const MP_ACCESS_TOKEN = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+25:const JWT_SECRET = process.env.JWT_SECRET || "amarena_fallback_secret_2025";
+26:const ADMIN_USER = process.env.ADMIN_USERNAME || "admin";
+27:const ADMIN_PASS = process.env.ADMIN_PASSWORD || "admin123";
+28:
+29:console.log("[Amarena] Starting startup sequence...");
+30:
+31:// --- Lazy Initialization of Firebase Admin ---
+32:let adminInitialized = false;
+33:
+34:function initFirebaseAdmin() {
+35:  if (!adminInitialized) {
+36:    try {
+37:      admin.initializeApp({
+38:        credential: admin.credential.applicationDefault(),
+39:        projectId: firebaseConfig.projectId || "amarena-sorvetes"
+40:      });
+41:      adminInitialized = true;
+42:      console.log("[Amarena] Firebase Admin initialized.");
+43:    } catch (err) {
+44:      console.warn("[Amarena] Firebase Admin failed to initialize. Push notifications might not work.", err);
+45:    }
+46:  }
+47:}
+48:
+49:// --- Lazy Initialization of MongoDB ---
+50:let dbClient: MongoClient | null = null;
+51:let database: Db | null = null;
+52:let dbConnectingPromise: Promise<Db> | null = null;
+53:
+54:async function getDb() {
+55:  if (database) return database;
+56:  
+57:  if (!dbConnectingPromise) {
+58:    dbConnectingPromise = (async () => {
+59:      try {
+60:        if (!MONGO_URL) {
+61:          throw new Error("MONGO_URL environment variable is not defined. Please set it in AI Studio Settings.");
+62:        }
+63:        console.log("[Amarena] Establishing MongoDB connection...");
+64:        dbClient = new MongoClient(MONGO_URL, {
+65:          maxPoolSize: 10,
+66:          minPoolSize: 2,
+67:          serverSelectionTimeoutMS: 5000,
+68:          connectTimeoutMS: 10000,
+69:        });
+70:        
+71:        await dbClient.connect();
+72:        const db = dbClient.db(DB_NAME);
+73:        database = db;
+74:        
+75:        console.log(`[Amarena] Successfully connected to MongoDB: ${DB_NAME}`);
+76:        return db;
+77:      } catch (error) {
+78:        dbConnectingPromise = null;
+79:        console.error("[Amarena] MongoDB connection error:", error instanceof Error ? error.message : String(error));
+80:        throw error;
+81:      }
+82:    })();
+83:  }
+84:  
+85:  return dbConnectingPromise;
+86:}
+87:
+88:// --- Mercado Pago Setup ---
+89:let mpClient: MercadoPagoConfig | null = null;
+90:
+91:function getMpClient() {
+92:  if (!mpClient) {
+93:    if (!MP_ACCESS_TOKEN) {
+94:      throw new Error("MERCADO_PAGO_ACCESS_TOKEN environment variable is not defined");
+95:    }
+96:    mpClient = new MercadoPagoConfig({ accessToken: MP_ACCESS_TOKEN });
+97:  }
+98:  return mpClient;
+99:}
+100:
+101:// --- Middleware ---
+102:const authenticateAdmin = (req: express.Request & { user?: { username: string; role: string } }, res: express.Response, next: express.NextFunction) => {
+103:  const token = req.headers["authorization"]?.split(" ")[1];
+104:  if (!token) return res.status(401).json({ error: "Unauthorized" });
+105:
+106:  try {
+107:    const decoded = jwt.verify(token, JWT_SECRET) as { username: string; role: string };
+108:    req.user = decoded;
+109:    next();
+110:  } catch {
+111:    res.status(401).json({ error: "Invalid token" });
+112:  }
+113:};
+114:
+115:async function startServer() {
+116:  const app = express();
+117:  const PORT = 3000;
+118:
+119:  console.log("[Amarena] Initialization Info:");
+120:  console.log("  - DB Status:", MONGO_URL ? "URL Provided" : "URL MISSING");
+121:  console.log("  - MP Status:", MP_ACCESS_TOKEN ? "Token Provided" : "Token MISSING");
+122:  console.log("  - ENV:", process.env.NODE_ENV || "development");
+123:
+124:  // IMMEDIATELY START LISTENING to satisfy health checks
+125:  const server = app.listen(PORT, "0.0.0.0", () => {
+126:    console.log(`[Amarena] Listening on port ${PORT} (satisfying health checks)`);
+127:  });
+128:
+129:  app.use(cors());
+130:  app.use(express.json({ limit: "10mb" }));
+131:
+132:  // Pre-connect and ensure indexes in background
+133:  getDb().then(async (db) => {
+134:    try {
+135:      console.log("[Amarena] Ensuring database indexes...");
+136:      await db.collection("products").createIndex({ category: 1 });
+137:      await db.collection("products").createIndex({ active: 1 });
+138:      await db.collection("orders").createIndex({ "clientInfo.phone": 1, createdAt: -1 });
+139:      await db.collection("orders").createIndex({ createdAt: -1 });
+140:      await db.collection("orders").createIndex({ status: 1 });
+141:      await db.collection("pushTokens").createIndex({ token: 1 }, { unique: true });
+142:      console.log("[Amarena] Database indexes ensured.");
+143:    } catch (idxErr) {
+144:      console.warn("[Amarena] Index creation warning:", idxErr instanceof Error ? idxErr.message : String(idxErr));
+145:    }
+146:  }).catch(err => {
+147:    console.warn("[Amarena] Background DB startup failed:", err.message);
+148:  });
+149:
+150:  app.get("/api/health", async (_req, res) => {
+151:    try {
+152:      if (database) {
+153:        await database.command({ ping: 1 });
+154:        return res.json({ status: "ok", database: "connected", mode: process.env.NODE_ENV || "development" });
+155:      }
+156:      res.json({ status: "ok", database: "not_connected_yet", mode: process.env.NODE_ENV || "development" });
+157:    } catch (err: unknown) {
+158:      res.status(500).json({ status: "error", error: String(err) });
+159:    }
+160:  });
+161:
+162:  app.get("/api/migrate-to-firestore", async (req, res) => {
+163:    try {
+164:      console.log("Starting migration with client SDK...");
+165:      const { initializeApp } = await import("firebase/app");
+166:      const { getFirestore, doc, setDoc } = await import("firebase/firestore");
+167:      
+168:      const appClient = initializeApp(firebaseConfig);
+169:      const firestore = getFirestore(appClient, firebaseConfig.firestoreDatabaseId);
+170:
+171:      const db = await getDb();
+172:      
+173:      const collections = ["products", "orders", "pushTokens", "daily_closings", "daily_visits"];
+174:      const stats: Record<string, number> = {};
+175:      
+176:      for (const col of collections) {
+177:        console.log(`Migrating ${col}...`);
+178:        const docs = await db.collection(col).find().toArray();
+179:        let count = 0;
+180:        for (const document of docs) {
+181:          const docId = document._id.toString();
+182:          delete document._id;
+183:          await setDoc(doc(firestore, col, docId), document);
+184:          count++;
+185:        }
+186:        stats[col] = count;
+187:      }
+188:      
+189:      console.log("Migrating settings...");
+190:      const settings = await db.collection("settings").findOne();
+191:      if (settings) {
+192:        delete settings._id;
+193:        await setDoc(doc(firestore, "settings", "main"), settings);
+194:        stats["settings"] = 1;
+195:      }
+196:      
+197:      console.log("Migration finished.");
+198:      res.json({ success: true, message: "Migration completed", stats });
+199:    } catch (err: unknown) {
+200:      console.error("Migration error:", err);
+201:      res.status(500).json({ error: String(err) });
+202:    }
+203:  });
+204:
+205:  // Auth
+206:  app.post("/api/admin/login", async (req, res) => {
+207:    const { username, password } = req.body;
+208:    if (username === ADMIN_USER && password === ADMIN_PASS) {
+209:      const token = jwt.sign({ username, role: "admin" }, JWT_SECRET, { expiresIn: "7d" });
+210:      return res.json({ token, username });
+211:    }
+212:    res.status(401).json({ error: "Credenciais inválidas" });
+213:  });
+214:
+215:  // Products
+216:  app.get("/api/products", async (req, res) => {
+217:    try {
+218:      const db = await getDb();
+219:      const products = await db.collection("products").find().toArray();
+220:      res.json(products.map(p => ({ ...p, id: p._id.toString() })));
+221:    } catch (err: unknown) {
+222:      res.status(500).json({ error: String(err) });
+223:    }
+224:  });
+225:
+226:  app.post("/api/products", authenticateAdmin, async (req, res) => {
+227:    try {
+228:      const db = await getDb();
+229:      const { name, category, subcategory, price, description, image, active } = req.body;
+230:      const result = await db.collection("products").insertOne({ 
+231:        name, 
+232:        category, 
+233:        subcategory,
+234:        price: parseFloat(price), 
+235:        description, 
+236:        image,
+237:        active: active !== undefined ? active : true,
+238:        createdAt: new Date() 
+239:      });
+240:      res.status(201).json({ id: result.insertedId });
+241:    } catch (err: unknown) {
+242:      res.status(500).json({ error: String(err) });
+243:    }
+244:  });
+245:
+246:  app.put("/api/products/:id", authenticateAdmin, async (req, res) => {
+247:    try {
+248:      const db = await getDb();
+249:      const { name, category, subcategory, price, description, image, active } = req.body;
+250:      await db.collection("products").updateOne(
+251:        { _id: new ObjectId(req.params.id) },
+252:        { 
+253:          $set: { 
+254:            name, 
+255:            category, 
+256:            subcategory,
+257:            price: parseFloat(price), 
+258:            description, 
+259:            image,
+260:            active: active !== undefined ? active : true,
+261:            updatedAt: new Date() 
+262:          } 
+263:        }
+264:      );
+265:      res.json({ message: "Produto atualizado" });
+266:    } catch (err: unknown) {
+267:      res.status(500).json({ error: String(err) });
+268:    }
+269:  });
+270:
+271:  app.delete("/api/products/:id", authenticateAdmin, async (req, res) => {
+272:    try {
+273:      const db = await getDb();
+274:      await db.collection("products").deleteOne({ _id: new ObjectId(req.params.id) });
+275:      res.json({ message: "Produto removido" });
+276:    } catch (err: unknown) {
+277:      res.status(500).json({ error: String(err) });
+278:    }
+279:  });
+280:
+281:  // Push Notifications
+282:  app.post("/api/push-token", async (req, res) => {
+283:    try {
+284:      const db = await getDb();
+285:      const { token } = req.body;
+286:      await db.collection("pushTokens").updateOne(
+287:        { token },
+288:        { $set: { token, updatedAt: new Date() } },
+289:        { upsert: true }
+290:      );
+291:      res.json({ message: "Token registered" });
+292:    } catch(err) {
+293:      res.status(500).json({ error: String(err) });
+294:    }
+295:  });
+296:
+297:  app.post("/api/admin/push-notification", authenticateAdmin, async (req, res) => {
+298:    try {
+299:      initFirebaseAdmin();
+300:      const db = await getDb();
+301:      const { title, body } = req.body;
+302:      
+303:      const tokens = await db.collection("pushTokens").find().toArray();
+304:      const registrationTokens = tokens.map(t => t.token);
+305:
+306:      if (registrationTokens.length > 0) {
+307:        await admin.messaging().sendEachForMulticast({
+308:          tokens: registrationTokens,
+309:          notification: { title, body },
+310:        });
+311:      }
+312:      res.json({ message: "Notificações enviadas" });
+313:    } catch (err: unknown) {
+314:      res.status(500).json({ error: String(err) });
+315:    }
+316:  });
+317:
+318:  app.get("/api/orders/user/:phone", async (req, res) => {
+319:    try {
+320:      const db = await getDb();
+321:      const phone = req.params.phone;
+322:      const orders = await db.collection("orders").find({ "clientInfo.phone": phone }).sort({ createdAt: -1 }).toArray();
+323:      res.json(orders.map(o => ({ ...o, id: o._id.toString() })));
+324:    } catch (err: unknown) {
+325:      res.status(500).json({ error: String(err) });
+326:    }
+327:  });
+328:
+329:  app.post("/api/orders", async (req, res) => {
+330:    try {
+331:      const db = await getDb();
+332:      const { items, total, deliveryFee, paymentMethod, clientInfo } = req.body;
+333:      const result = await db.collection("orders").insertOne({
+334:        items,
+335:        total,
+336:        deliveryFee,
+337:        paymentMethod,
+338:        clientInfo,
+339:        status: "pending",
+340:        createdAt: new Date()
+341:      });
+342:      res.status(201).json({ id: result.insertedId });
+343:    } catch (err: unknown) {
+344:      res.status(500).json({ error: String(err) });
+345:    }
+346:  });
+347:
+348:  // Orders
+349:  app.get("/api/orders/:id/track", async (req, res) => {
+350:    try {
+351:      const db = await getDb();
+352:      const order = await db.collection("orders").findOne(
+353:        { _id: new ObjectId(req.params.id) },
+354:        { projection: { 
+355:          status: 1, 
+356:          deliveryLocation: 1, 
+357:          clientInfo: 1,
+358:          createdAt: 1
+359:        }}
+360:      );
+361:      if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+362:      res.json(order);
+363:    } catch (err: unknown) {
+364:      res.status(500).json({ error: String(err) });
+365:    }
+366:  });
+367:
+368:  app.get("/api/admin/orders", authenticateAdmin, async (req, res) => {
+369:    try {
+370:      const db = await getDb();
+371:      const orders = await db.collection("orders").find().sort({ createdAt: -1 }).toArray();
+372:      res.json(orders.map(o => ({ ...o, id: o._id.toString() })));
+373:    } catch (err: unknown) {
+374:      res.status(500).json({ error: String(err) });
+375:    }
+376:  });
+377:
+378:  app.patch("/api/admin/orders/:id", authenticateAdmin, async (req, res) => {
+379:    try {
+380:      const db = await getDb();
+381:      const updateFields: any = {};
+382:      if (req.body.status !== undefined) updateFields.status = req.body.status;
+383:      if (req.body.archived !== undefined) updateFields.archived = req.body.archived;
+384:      updateFields.updatedAt = new Date();
+385:
+386:      await db.collection("orders").updateOne(
+387:        { _id: new ObjectId(req.params.id) },
+388:        { $set: updateFields }
+389:      );
+390:      res.json({ message: "Pedido atualizado com sucesso" });
+391:    } catch (err: unknown) {
+392:      res.status(500).json({ error: String(err) });
+393:    }
+394:  });
+395:
+396:  app.post("/api/admin/orders/archive-completed", authenticateAdmin, async (req, res) => {
+397:    try {
+398:      const db = await getDb();
+399:      const result = await db.collection("orders").updateMany(
+400:        { 
+401:          status: { $in: ["completed", "cancelled"] },
+402:          archived: { $ne: true }
+403:        },
+404:        { $set: { archived: true, updatedAt: new Date() } }
+405:      );
+406:      res.json({ message: "Pedidos arquivados com sucesso", modifiedCount: result.modifiedCount });
+407:    } catch (err: unknown) {
+408:      res.status(500).json({ error: String(err) });
+409:    }
+410:  });
+411:
+412:  app.patch("/api/admin/orders/:id/location", authenticateAdmin, async (req, res) => {
+413:    try {
+414:      const db = await getDb();
+415:      const { lat, lng } = req.body;
+416:      await db.collection("orders").updateOne(
+417:        { _id: new ObjectId(req.params.id) },
+418:        { 
+419:          $set: { 
+420:            deliveryLocation: { lat, lng, updatedAt: new Date() },
+421:            status: "shipped" 
+422:          } 
+423:        }
+424:      );
+425:      res.json({ message: "Localização atualizada" });
+426:    } catch (err: unknown) {
+427:      res.status(500).json({ error: String(err) });
+428:    }
+429:  });
+430:
+431:  app.get("/api/orders/:id/location", async (req, res) => {
+432:    try {
+433:      const db = await getDb();
+434:      const order = await db.collection("orders").findOne(
+435:        { _id: new ObjectId(req.params.id) },
+436:        { projection: { deliveryLocation: 1, status: 1 } }
+437:      );
+438:      if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+439:      res.json(order.deliveryLocation || null);
+440:    } catch (err: unknown) {
+441:      res.status(500).json({ error: String(err) });
+442:    }
+443:  });
+444:
+445:  // Settings
+446:  app.get("/api/settings", async (req, res) => {
+447:    try {
+448:      const db = await getDb();
+449:      console.log("Fetching settings from DB...");
+450:      const settings = await db.collection("settings").findOne({ _id: new ObjectId("000000000000000000000001") });
+451:      console.log("Settings found:", settings);
+452:      if (settings) {
+453:        const rest = { ...settings };
+454:        delete rest._id;
+455:        res.json(rest);
+456:      } else {
+457:        res.json({});
+458:      }
+459:    } catch (err: unknown) {
+460:      console.error("Error fetching settings:", err);
+461:      res.status(500).json({ error: String(err) });
+462:    }
+463:  });
+464:
+465:  app.put("/api/settings", authenticateAdmin, async (req, res) => {
+466:    try {
+467:      const db = await getDb();
+468:      const data = { ...req.body };
+469:      delete data._id;
+470:      await db.collection("settings").updateOne(
+471:        { _id: new ObjectId("000000000000000000000001") },
+472:        { $set: data },
+473:        { upsert: true }
+474:      );
+475:      res.json({ message: "Configurações salvas" });
+476:    } catch (err: unknown) {
+477:      res.status(500).json({ error: String(err) });
+478:    }
+479:  });
+480:
+481:  // Daily Closings
+482:  app.get("/api/daily-closings", authenticateAdmin, async (req, res) => {
+483:    try {
+484:      const db = await getDb();
+485:      const closings = await db.collection("daily_closings").find().sort({ createdAt: -1 }).limit(30).toArray();
+486:      res.json(closings);
+487:    } catch (err) {
+488:      res.status(500).json({ error: String(err) });
+489:    }
+490:  });
+491:
+492:  app.post("/api/daily-closings", authenticateAdmin, async (req, res) => {
+493:    try {
+494:      const db = await getDb();
+495:      const doc = { ...req.body, createdAt: new Date().toISOString() };
+496:      await db.collection("daily_closings").insertOne(doc);
+497:      res.json({ message: "Fechamento registrado com sucesso" });
+498:    } catch (err) {
+499:      res.status(500).json({ error: String(err) });
+500:    }
+501:  });
+502:
+503:  // Analytics
+504:  app.post("/api/analytics/visit", async (req, res) => {
+505:    try {
+506:      const db = await getDb();
+507:      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+508:      await db.collection("daily_visits").updateOne(
+509:        { date: today },
+510:        { $inc: { count: 1 }, $setOnInsert: { date: today } },
+511:        { upsert: true }
+512:      );
+513:      res.json({ success: true });
+514:    } catch (err) {
+515:      res.status(500).json({ error: String(err) });
+516:    }
+517:  });
+518:
+519:  app.get("/api/analytics/stats", authenticateAdmin, async (req, res) => {
+520:    try {
+521:      const db = await getDb();
+522:      const today = new Date().toISOString().split('T')[0];
+523:      const todayStats = await db.collection("daily_visits").findOne({ date: today });
+524:      const totalVisits = await db.collection("daily_visits").aggregate([
+525:        { $group: { _id: null, total: { $sum: "$count" } } }
+526:      ]).toArray();
+527:      
+528:      const totalOrders = await db.collection("orders").countDocuments();
+529:      const totalClients = (await db.collection("orders").distinct("clientInfo.phone")).length;
+530:
+531:      res.json({
+532:        todayVisits: todayStats ? todayStats.count : 0,
+533:        totalVisits: totalVisits[0] ? totalVisits[0].total : 0,
+534:        totalOrders,
+535:        totalClients
+536:      });
+537:    } catch (err) {
+538:      res.status(500).json({ error: String(err) });
+539:    }
+540:  });
+541:
+542:  // Mercado Pago
+543:  app.post("/api/payment/create-preference", async (req, res) => {
+544:    try {
+545:      const { items, external_reference } = req.body;
+546:      const client = getMpClient();
+547:      const preference = new Preference(client);
+548:      
+549:      const response = await preference.create({
+550:        body: {
+551:          items: items.map((item: { name: string; quantity: number; price: number }) => ({
+552:            title: item.name,
+553:            quantity: item.quantity,
+554:            unit_price: item.price,
+555:            currency_id: "BRL"
+556:          })),
+557:          external_reference,
+558:          back_urls: {
+559:            success: `${process.env.APP_URL}/success`,
+560:            failure: `${process.env.APP_URL}/failure`,
+561:            pending: `${process.env.APP_URL}/pending`
+562:          },
+563:          auto_return: "approved",
+564:          payment_methods: {
+565:            excluded_payment_types: [{ id: "ticket" }, { id: "bank_transfer" }],
+566:            installments: 12
+567:          }
+568:        }
+569:      });
+570:      res.json({ id: response.id, init_point: response.init_point });
+571:    } catch (err: unknown) {
+572:      res.status(500).json({ error: String(err) });
+573:    }
+574:  });
+575:
+576:  // Vite
+577:  if (process.env.NODE_ENV !== "production") {
+578:    try {
+579:      const { createServer: createViteServer } = await import("vite");
+580:      const vite = await createViteServer({
+581:        server: { middlewareMode: true },
+582:        appType: "spa",
+583:      });
+584:      app.use(vite.middlewares);
+585:      
+586:      // Ensure 404s are handled as SPA fallback in dev too
+587:      app.get("*", async (req, res, next) => {
+588:        const url = req.originalUrl;
+589:        if (url.startsWith("/api")) return next();
+590:        
+591:        try {
+592:          let template = fs.readFileSync(path.resolve(process.cwd(), "index.html"), "utf-8");
+593:          template = await vite.transformIndexHtml(url, template);
+594:          res.status(200).set({ "Content-Type": "text/html" }).end(template);
+595:        } catch (e) {
+596:          vite.ssrFixStacktrace(e as Error);
+597:          next(e);
+598:        }
+599:      });
+600:    } catch (viteError) {
+601:      console.warn("Failed to load Vite dev server. This is expected in production if built correctly.", viteError);
+602:    }
+603:  } else {
+604:    const distPath = path.join(process.cwd(), "dist");
+605:    app.use(express.static(distPath));
+606:    app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+607:  }
+608:
+609:  process.on("SIGINT", () => {
+610:    console.log("[Amarena] Shutting down...");
+611:    server.close(() => {
+612:      if (dbClient) dbClient.close();
+613:      process.exit(0);
+614:    });
+615:  });
+616:}
+617:
+618:startServer().catch(err => {
+619:  console.error("Critical error starting server:", err);
+620:  process.exit(1);
+621:});

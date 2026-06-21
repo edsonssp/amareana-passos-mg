@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // TEMPORARY RULES:
+    // Because the Admin Dashboard does not use Firebase Authentication yet (it uses a local JWT and password),
+    // we must allow public writes to these collections so the frontend can work directly with Firestore.
+    // NEXT STEP: Implement Firebase Auth for Admin so we can lock this down via `if request.auth != null;`
+    
+    match /products/{document=**} {
+      allow read, write: if true;
+    }
+    
+    match /orders/{document=**} {
+      allow read, write: if true;
+    }
+    
+    match /settings/{document=**} {
+      allow read, write: if true;
+    }
+    
+    match /daily_closings/{document=**} {
+      allow read, write: if true; 
+    }
+    
+    match /daily_visits/{document=**} {
+      allow read, write: if true;
+    }
+    
+    match /pushTokens/{document=**} {
+      allow read, write: if true;
+    }
+    
+    match /{document=**} {
+      allow read, write: if false; // Deny anything else
+    }
+  }
+}
+
