@@ -744,7 +744,7 @@ type AppSettings = {
 };
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<'home' | 'sorvete' | 'picole' | 'potes' | 'acai' | 'promos' | 'milkshake' | 'potePersonalizado' | 'whatsapp' | 'admin' | 'checkout' | 'success' | 'history'>('home');
+  const [currentScreen, setCurrentScreen] = useState<'home' | 'sorvete' | 'picole' | 'potes' | 'acai' | 'promos' | 'milkshake' | 'potePersonalizado' | 'whatsapp' | 'admin' | 'checkout' | 'success' | 'history'>(window.location.pathname === '/admin' ? 'admin' : 'home');
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
