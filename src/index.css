@@ -27,22 +27,46 @@ body {
 
 @layer utilities {
   @media print {
-    body {
-      background-color: white !important;
-      -webkit-print-color-adjust: exact;
+    @page {
+      size: 80mm auto;
+      margin: 0mm;
     }
+
+    html, body, #root, #root > div {
+      background-color: white !important;
+      background: white !important;
+      -webkit-print-color-adjust: exact;
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: visible !important;
+      box-shadow: none !important;
+      border: none !important;
+    }
+
     .no-print {
       display: none !important;
+      height: 0 !important;
+      width: 0 !important;
+      overflow: hidden !important;
     }
+
     .print-only {
       display: block !important;
-    }
-    /* Reset layout for printing */
-    #root > div {
-      display: block !important;
-      min-height: auto !important;
+      width: 80mm !important;
+      max-width: 80mm !important;
+      margin: 0 auto !important;
+      padding: 4mm 4mm 14mm 4mm !important;
+      box-sizing: border-box !important;
+      page-break-after: avoid !important;
+      page-break-inside: avoid !important;
+      break-after: avoid !important;
+      break-inside: avoid !important;
     }
   }
+
   .print-only {
     display: none;
   }

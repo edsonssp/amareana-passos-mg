@@ -129,7 +129,7 @@ const ModernTicket = ({ order, onDismiss }: { order: Order; onDismiss: () => voi
     initial={{ opacity: 0, scale: 0.9, y: 20 }}
     animate={{ opacity: 1, scale: 1, y: 0 }}
     exit={{ opacity: 0, scale: 0.9, y: 20 }}
-    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto py-10"
+    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto py-10 no-print"
     onClick={onDismiss}
   >
     <div 
@@ -496,7 +496,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', loadin
 const OrderTicket = ({ order }: { order: Order | null }) => {
   if (!order) return null;
   return (
-    <div className="print-only p-4 text-black font-mono w-[80mm] mx-auto bg-white mb-8">
+    <div className="print-only p-4 pb-10 text-black font-mono w-[80mm] mx-auto bg-white">
       {/* HEADER */}
       <div className="text-center mb-3">
         <h2 className="text-2xl font-black uppercase tracking-tighter">AMARENA SORVETES</h2>
@@ -686,7 +686,7 @@ const DailyClosingTicket = ({ orders, operatorName }: { orders: Order[], operato
   });
 
   return (
-    <div className="print-only p-4 text-black font-mono w-[80mm] mx-auto bg-white text-[12px] leading-tight mb-8">
+    <div className="print-only p-4 pb-10 text-black font-mono w-[80mm] mx-auto bg-white text-[12px] leading-tight">
       {/* HEADER */}
       <div className="text-center mb-4">
         <h2 className="text-2xl font-black uppercase tracking-tighter">AMARENA SORVETES</h2>
