@@ -29,7 +29,7 @@ body {
   @media print {
     @page {
       size: 80mm auto;
-      margin: 0mm;
+      margin: 0mm !important;
     }
 
     html, body, #root, #root > div {
@@ -58,7 +58,7 @@ body {
       width: 80mm !important;
       max-width: 80mm !important;
       margin: 0 auto !important;
-      padding: 4mm 4mm 14mm 4mm !important;
+      padding: 2mm 2mm 4mm 2mm !important;
       box-sizing: border-box !important;
       page-break-after: avoid !important;
       page-break-inside: avoid !important;
@@ -70,6 +70,7 @@ body {
   .print-only {
     display: none;
   }
+
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
@@ -77,14 +78,4 @@ body {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
-}
-
-/* Glass effect for UI elements */
-.glass {
-  @apply bg-white/70 backdrop-blur-md border border-white/20;
-}
-
-/* Custom shadows for a "premium" feel */
-.shadow-premium {
-  box-shadow: 0 10px 30px -10px rgba(76, 5, 25, 0.15);
 }

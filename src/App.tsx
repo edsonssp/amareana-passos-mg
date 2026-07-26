@@ -492,11 +492,21 @@ const Button = ({ children, onClick, variant = 'primary', className = '', loadin
   );
 };
 
+// Helper to clean accented characters for thermal printers (prevents weird symbols like " or -)
+const cleanThermalText = (str: string | undefined | null): string => {
+  if (!str) return '';
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/Ç/g, 'C')
+    .replace(/ç/g, 'c');
+};
+
 // Ticket component for printing
 const OrderTicket = ({ order }: { order: Order | null }) => {
   if (!order) return null;
   return (
-    <div className="print-only p-4 pb-10 text-black font-mono w-[80mm] mx-auto bg-white">
+    <div className="print-only p-2 text-black font-mono w-[80mm] mx-auto bg-white">
       {/* HEADER */}
       <div className="text-center mb-3">
         <h2 className="text-2xl font-black uppercase tracking-tighter">AMARENA SORVETES</h2>
@@ -522,7 +532,7 @@ const OrderTicket = ({ order }: { order: Order | null }) => {
         {order.items.map((item, idx) => (
           <div key={idx} className="mb-2">
             <div className="flex justify-between items-start">
-              <span className="flex-1 pr-2">{item.quantity}  {item.name}</span>
+              <span className="flex-1 pr-2">{item.quantity}  {cleanThermalText(item.name)}</span>
               <span>{(item.price * item.quantity).toFixed(2)}</span>
             </div>
           </div>
@@ -543,19 +553,19 @@ const OrderTicket = ({ order }: { order: Order | null }) => {
       </div>
 
       <div className="mt-4 pt-2 border-t text-[11px] font-bold uppercase">
-        <p>PAGAMENTO: {order.paymentMethod}</p>
+        <p>PAGAMENTO: {cleanThermalText(order.paymentMethod)}</p>
       </div>
 
       {order.clientInfo && (
         <div className="mt-4 pt-4 border-t-2 border-black border-dashed">
            <p className="text-center font-bold text-sm mb-2">DADOS DO CLIENTE</p>
            <div className="text-[12px] uppercase font-bold space-y-1">
-             <p>NOME: {order.clientInfo.name}</p>
+             <p>NOME: {cleanThermalText(order.clientInfo.name)}</p>
              <p>TEL: {order.clientInfo.phone}</p>
              {order.clientInfo.deliveryType === 'delivery' && (
                <div>
-                  <p className="mt-2">ENDEREÇO:</p>
-                  <p className="font-black text-sm">{order.clientInfo.address}</p>
+                  <p className="mt-2">ENDERECO:</p>
+                  <p className="font-black text-sm">{cleanThermalText(order.clientInfo.address)}</p>
                </div>
              )}
            </div>
@@ -563,8 +573,8 @@ const OrderTicket = ({ order }: { order: Order | null }) => {
       )}
 
       <div className="text-center mt-6 text-[10px] uppercase font-bold">
-        <p className="mb-1">Obrigado pela preferência!</p>
-        <p>Volte Sempre</p>
+        <p className="mb-1">OBRIGADO PELA PREFERENCIA!</p>
+        <p>VOLTE SEMPRE</p>
       </div>
     </div>
   );
@@ -686,7 +696,7 @@ const DailyClosingTicket = ({ orders, operatorName }: { orders: Order[], operato
   });
 
   return (
-    <div className="print-only p-4 pb-10 text-black font-mono w-[80mm] mx-auto bg-white text-[12px] leading-tight">
+    <div className="print-only p-2 text-black font-mono w-[80mm] mx-auto bg-white text-[12px] leading-tight">
       {/* HEADER */}
       <div className="text-center mb-4">
         <h2 className="text-2xl font-black uppercase tracking-tighter">AMARENA SORVETES</h2>
@@ -695,7 +705,7 @@ const DailyClosingTicket = ({ orders, operatorName }: { orders: Order[], operato
       </div>
 
       <div className="mb-4 text-sm font-bold border-b border-black pb-2">
-        <p className="uppercase text-center">OPERADOR: {operatorName || 'Admin'}</p>
+        <p className="uppercase text-center">OPERADOR: {cleanThermalText(operatorName) || 'ADMIN'}</p>
       </div>
 
       <div className="mb-4">
@@ -703,7 +713,7 @@ const DailyClosingTicket = ({ orders, operatorName }: { orders: Order[], operato
         <div className="space-y-1">
           {Object.values(methods).filter(m => m.total > 0).map(m => (
             <div key={m.label} className="flex justify-between items-center text-[12px] uppercase">
-               <span>{m.label}</span>
+               <span>{cleanThermalText(m.label)}</span>
                <span className="font-bold">{m.total.toFixed(2)}</span>
             </div>
           ))}
