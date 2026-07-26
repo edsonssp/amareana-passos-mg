@@ -1,96 +1,38 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { motion, AnimatePresence } from 'motion/react';
-import { Truck, MapPin, CheckCircle, Navigation, Phone, Clock, ChevronRight, Map as MapIcon, Loader2 } from 'lucide-react';
+import React from 'react';
+import axios from 'axios';
+import { motion } from 'motion/react';
+import { Truck, MapPin, CheckCircle, Navigation, Phone, Clock, ChevronRight, Share2, Loader2 } from 'lucide-react';
 import { Order } from '../types';
 import { OrderLiveTracker } from './OrderLiveTracker';
 
 interface DeliveryConsoleProps {
+  orders: Order[];
   onBack: () => void;
+  onOrderUpdate: () => void; // callback to trigger a refresh in parent
 }
 
-export const DeliveryConsole: React.FC<DeliveryConsoleProps> = ({ onBack }) => {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTrackingId, setActiveTrackingId] = useState<string | null>(null);
-  const watchIdRef = useRef<number | null>(null);
+export const DeliveryConsole: React.FC<DeliveryConsoleProps> = ({ orders, onBack, onOrderUpdate }) => {
+  const deliveries = orders.filter(o => 
+    o.clientInfo?.deliveryType === 'delivery' && 
+    ['preparing', 'confirmed', 'shipped'].includes(o.status)
+  );
 
-  useEffect(() => {
-    // Monitor orders that are preparing, confirmed or shipped
-    const q = query(
-      collection(db, 'orders'),
-      where('status', 'in', ['preparing', 'confirmed', 'shipped'])
-    );
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Order));
-      // Filtra os que tem modo delivery
-      const deliveries = data.filter(o => o.clientInfo?.deliveryType === 'delivery');
-      setOrders(deliveries);
-      setLoading(false);
-    }, (err) => {
-      console.error("Error fetching deliveries:", err);
-      setLoading(false);
-    });
-    
-    return () => unsubscribe();
-  }, []);
-
-  const updateLocation = async (orderId: string, lat: number, lng: number) => {
-    try {
-      await updateDoc(doc(db, 'orders', orderId), { 
-        deliveryLocation: { lat, lng }
-      });
-    } catch (err) {
-      console.error("Error updating location:", err);
-    }
-  };
-
-  const startDelivery = async (orderId: string) => {
-    setActiveTrackingId(orderId);
-    
-    if (watchIdRef.current) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-    }
-
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        updateLocation(orderId, pos.coords.latitude, pos.coords.longitude);
-      },
-      (err) => console.error("Geolocation error:", err),
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-    );
-
-    try {
-      await updateDoc(doc(db, 'orders', orderId), { status: 'shipped' });
-    } catch (err) {
-      console.error("Error starting delivery:", err);
-    }
+  const sendToDriver = (order: Order) => {
+    const driverUrl = `${window.location.origin}/#driver/${order.id}`;
+    const text = `*Nova Entrega: ${order.clientInfo?.name}*\n\nEndereço: ${order.clientInfo?.address}\nTelefone: ${order.clientInfo?.phone}\n\nAbra o link abaixo para iniciar a rota:\n${driverUrl}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const completeDelivery = async (orderId: string) => {
-    if (watchIdRef.current) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-    setActiveTrackingId(null);
-
     try {
-      await updateDoc(doc(db, 'orders', orderId), { status: 'completed' });
+      await axios.patch(`/api/admin/orders/${orderId}`, { status: 'completed' }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+      });
+      onOrderUpdate();
     } catch (err) {
       console.error("Error completing delivery:", err);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center p-20 text-stone-400">
-        <Loader2 className="animate-spin mb-4" size={48} />
-        <p>Carregando entregas...</p>
-      </div>
-    );
-  }
 
   return (
     <div className="p-6 md:p-10 max-w-4xl mx-auto">
@@ -99,25 +41,25 @@ export const DeliveryConsole: React.FC<DeliveryConsoleProps> = ({ onBack }) => {
           <Truck size={28} />
         </div>
         <div>
-          <h2 className="text-3xl font-display font-bold text-stone-800 uppercase tracking-tight">Painel do Entregador</h2>
-          <p className="text-stone-400 text-sm font-medium">Gerencie suas rotas e entregas em tempo real</p>
+          <h2 className="text-3xl font-display font-bold text-stone-800 uppercase tracking-tight">Painel de Entregas</h2>
+          <p className="text-stone-400 text-sm font-medium">Acompanhe as entregas e envie para os motoboys</p>
         </div>
       </div>
 
       <div className="space-y-4">
-        {orders.length === 0 ? (
+        {deliveries.length === 0 ? (
           <div className="bg-stone-50 rounded-[32px] p-12 text-center border border-dashed border-stone-200">
             <MapPin className="mx-auto text-stone-300 mb-4" size={40} />
             <p className="text-stone-500 font-medium italic">Nenhuma entrega pendente no momento.</p>
           </div>
         ) : (
-          orders.map(order => (
+          deliveries.map(order => (
             <motion.div 
               key={order.id}
               layout
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`bg-white rounded-[32px] overflow-hidden border-2 transition-all ${activeTrackingId === order.id ? 'border-primary ring-4 ring-primary/10 shadow-xl' : 'border-stone-100 shadow-sm'}`}
+              className={`bg-white rounded-[32px] overflow-hidden border-2 transition-all ${order.status === 'shipped' ? 'border-primary ring-4 ring-primary/10 shadow-xl' : 'border-stone-100 shadow-sm'}`}
             >
               <div className="p-6">
                 <div className="flex justify-between items-start mb-4">
@@ -130,7 +72,7 @@ export const DeliveryConsole: React.FC<DeliveryConsoleProps> = ({ onBack }) => {
                           </span>
                         )}
                       </div>
-                      <h3 className="text-xl font-bold text-stone-800">{order.clientInfo.name}</h3>
+                      <h3 className="text-xl font-bold text-stone-800">{order.clientInfo?.name}</h3>
                    </div>
                    <div className="text-right">
                       <p className="text-xs text-stone-400 font-bold mb-1 uppercase">Total</p>
@@ -141,11 +83,11 @@ export const DeliveryConsole: React.FC<DeliveryConsoleProps> = ({ onBack }) => {
                 <div className="space-y-3 mb-6 bg-stone-50/50 p-4 rounded-2xl border border-stone-100">
                   <div className="flex gap-3 text-stone-600">
                     <MapPin className="text-primary flex-shrink-0" size={18} />
-                    <p className="text-sm font-medium leading-tight">{order.clientInfo.address}</p>
+                    <p className="text-sm font-medium leading-tight">{order.clientInfo?.address}</p>
                   </div>
                   <div className="flex gap-3 text-stone-600">
                     <Phone className="text-amarena-green flex-shrink-0" size={18} />
-                    <p className="text-sm font-bold tracking-tight">{order.clientInfo.phone}</p>
+                    <p className="text-sm font-bold tracking-tight">{order.clientInfo?.phone}</p>
                   </div>
                   <div className="flex gap-3 text-stone-600">
                     <Clock className="text-stone-400 flex-shrink-0" size={18} />
@@ -153,30 +95,21 @@ export const DeliveryConsole: React.FC<DeliveryConsoleProps> = ({ onBack }) => {
                   </div>
                 </div>
 
-                {activeTrackingId === order.id && (
-                  <div className="mb-6 animate-in fade-in zoom-in duration-500">
-                    <OrderLiveTracker orderId={order.id} />
-                  </div>
-                )}
+                <div className="mb-6 animate-in fade-in zoom-in duration-500">
+                  <OrderLiveTracker orderId={order.id} />
+                </div>
 
-                <div className="flex gap-2">
-                  {order.status === 'confirmed' ? (
+                <div className="flex gap-2 mt-4">
+                  {['preparing', 'confirmed'].includes(order.status) ? (
                     <button 
-                      onClick={() => startDelivery(order.id)}
-                      className="flex-1 bg-primary text-white p-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg active:scale-95"
+                      onClick={() => sendToDriver(order)}
+                      className="flex-1 bg-green-500 text-white p-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-green-600 transition-all shadow-lg active:scale-95"
                     >
-                      <Navigation size={20} />
-                      Sair para Entrega
+                      <Share2 size={20} />
+                      Enviar para Entregador
                     </button>
                   ) : order.status === 'shipped' ? (
                     <div className="flex flex-col w-full gap-2">
-                      <button 
-                        onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(order.clientInfo.address)}`, '_blank')}
-                        className="w-full bg-stone-800 text-white p-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-stone-900 transition-all shadow-md"
-                      >
-                        <Navigation size={20} />
-                        Abrir GPS
-                      </button>
                       <button 
                         onClick={() => completeDelivery(order.id)}
                         className="w-full bg-amarena-green text-white p-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-amarena-green/90 transition-all shadow-lg active:scale-95"
@@ -185,14 +118,12 @@ export const DeliveryConsole: React.FC<DeliveryConsoleProps> = ({ onBack }) => {
                         Finalizar Entrega
                       </button>
                     </div>
-                  ) : null}
-                  
-                  <button 
-                    onClick={() => {}} // Could be a details view
-                    className="p-4 bg-stone-100 text-stone-500 rounded-2xl hover:bg-stone-200 transition-all"
-                  >
-                    <ChevronRight size={20} />
-                  </button>
+                  ) : (
+                    <button disabled className="flex-1 bg-stone-100 text-stone-400 p-4 rounded-2xl font-bold flex items-center justify-center gap-2">
+                      <Loader2 size={20} className="animate-spin" />
+                      Preparando...
+                    </button>
+                  )}
                 </div>
               </div>
             </motion.div>

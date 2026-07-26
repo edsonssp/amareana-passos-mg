@@ -1022,7 +1022,7 @@ export default function App() {
           selectedSize,
           selectedTubSize,
           selectedMilkshakeSize
-        }, '');
+        }, '', window.location.hash || window.location.pathname);
       }
     }
   }, [currentScreen, selectedSize, selectedTubSize, selectedMilkshakeSize, isAdminLoggedIn]);
@@ -1457,7 +1457,7 @@ export default function App() {
                     whileTap={{ scale: 0.95 }}
                     onClick={() => {
                       if (item.id === 'whatsapp') {
-                        window.open('https://wa.me/553599999999', '_blank'); // Replace with real number
+                        window.open('https://wa.me/553597509179', '_blank');
                         return;
                       }
                       setCurrentScreen(item.id as typeof currentScreen);
@@ -1474,21 +1474,21 @@ export default function App() {
             )}
 
             <div className="w-full px-5 pb-10 mt-10 space-y-3">
-               <div className="bg-white p-5 rounded-3xl shadow-sm border border-stone-100 flex items-center gap-4 hover:shadow-md transition-shadow">
+               <a href="https://maps.google.com/?q=Rua+Dois+de+Novembro,+59+-+Centro,+Passos+-+MG" target="_blank" rel="noopener noreferrer" className="bg-white p-5 rounded-3xl shadow-sm border border-stone-100 flex items-center gap-4 hover:shadow-md transition-shadow w-full text-left">
                   <div className="bg-red-100 p-3 rounded-2xl text-amarena-red"><MapPin size={20} /></div>
                   <div>
-                    <p className="font-bold text-stone-800 text-sm">Rua Dois de Novembro</p>
+                    <p className="font-bold text-stone-800 text-sm">Rua Dois de Novembro, 59</p>
                     <p className="text-xs text-stone-400">Centro - Passos, MG</p>
                   </div>
-               </div>
-               <div className="bg-white p-5 rounded-3xl shadow-sm border border-stone-100 flex items-center gap-4 hover:shadow-md transition-shadow">
+               </a>
+               <a href="https://wa.me/553597509179" target="_blank" rel="noopener noreferrer" className="bg-white p-5 rounded-3xl shadow-sm border border-stone-100 flex items-center gap-4 hover:shadow-md transition-shadow w-full text-left">
                   <div className="bg-green-100 p-3 rounded-2xl text-amarena-green"><MessageCircle size={20} /></div>
                   <p className="font-bold text-stone-800 text-sm">Fale conosco no WhatsApp</p>
-               </div>
-               <div className="bg-white p-5 rounded-3xl shadow-sm border border-stone-100 flex items-center gap-4 hover:shadow-md transition-shadow">
+               </a>
+               <a href="https://instagram.com/amarena.passos" target="_blank" rel="noopener noreferrer" className="bg-white p-5 rounded-3xl shadow-sm border border-stone-100 flex items-center gap-4 hover:shadow-md transition-shadow w-full text-left">
                   <div className="bg-pink-100 p-3 rounded-2xl text-pink-500"><Instagram size={20} /></div>
                   <p className="font-bold text-stone-800 text-sm">@amarena.passos</p>
-               </div>
+               </a>
             </div>
 
             <AnimatePresence>
@@ -2816,7 +2816,7 @@ export default function App() {
 
                 {adminSection === 'delivery' && (
                   <div className="animate-in fade-in slide-in-from-right-4 duration-500">
-                    <DeliveryConsole onBack={() => setAdminSection('dashboard')} />
+                    <DeliveryConsole orders={orders} onBack={() => setAdminSection('dashboard')} onOrderUpdate={fetchOrders} />
                   </div>
                 )}
 
@@ -3907,7 +3907,7 @@ export default function App() {
       {/* Dynamic Animated Background Moved inside container */}
       
       {/* Actual App Container */}
-      <div className={`w-full ${currentScreen === 'admin' ? 'h-screen' : 'max-w-2xl min-h-screen relative'} bg-white/15 backdrop-blur-[2px] shadow-premium relative overflow-x-hidden transition-all duration-500 border-x border-amarena/10 z-10`}>
+      <div className={`w-full ${currentScreen === 'admin' ? 'h-screen' : 'max-w-2xl min-h-screen relative'} bg-white/15 backdrop-blur-[2px] shadow-premium relative overflow-x-hidden transition-all duration-500 border-x border-amarena/10 z-10 no-print`}>
         <AnimatedBackground />
         <AnimatePresence mode="wait">
           <motion.div
@@ -3967,7 +3967,7 @@ export default function App() {
 
       {/* Actual Hidden Ticket for Browser Printing */}
       <OrderTicket order={printOrder} />
-      <DailyClosingTicket orders={orders} operatorName={operatorName} />
+      {adminSection === 'daily-closing' && !printOrder && <DailyClosingTicket orders={orders} operatorName={operatorName} />}
 
       <AnimatePresence>
         {driverOrderId && (

@@ -27,11 +27,20 @@ body {
 
 @layer utilities {
   @media print {
+    body {
+      background-color: white !important;
+      -webkit-print-color-adjust: exact;
+    }
     .no-print {
       display: none !important;
     }
     .print-only {
       display: block !important;
+    }
+    /* Reset layout for printing */
+    #root > div {
+      display: block !important;
+      min-height: auto !important;
     }
   }
   .print-only {

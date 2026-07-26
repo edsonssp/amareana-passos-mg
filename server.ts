@@ -2,7 +2,6 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { MongoClient, ObjectId, Db } from "mongodb";
 import { MercadoPagoConfig, Preference } from "mercadopago";
@@ -12,8 +11,6 @@ import admin from "firebase-admin";
 dotenv.config();
 
 // --- Final Polish for production runtime ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // --- Environment Variables ---
 const MONGO_URL = process.env.MONGO_URL;
