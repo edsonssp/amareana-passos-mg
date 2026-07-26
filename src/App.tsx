@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getToken } from 'firebase/messaging';
-// Keep the needed firestore functions
-import { collection, query, where, orderBy, onSnapshot, doc, getDocs, updateDoc, addDoc, deleteDoc, setDoc, writeBatch, increment } from 'firebase/firestore';
-import { db, messaging } from './lib/firebase';
+import { messaging } from './lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   IceCream, 
@@ -45,6 +43,7 @@ import AnimatedBackground from './components/AnimatedBackground';
 import { Confetti } from './components/Confetti';
 import { DeliveryConsole } from './components/DeliveryConsole';
 import { OrderLiveTracker } from './components/OrderLiveTracker';
+import { DriverSingleOrderConsole } from './components/DriverSingleOrderConsole';
 import { Product, Order } from './types';
 
 // --- Custom Icons ---
@@ -215,18 +214,6 @@ const ModernTicket = ({ order, onDismiss }: { order: Order; onDismiss: () => voi
              </div>
           </div>
           
-          {order.clientInfo?.deliveryType === 'delivery' && (order.status === 'preparing' || order.status === 'shipped') && (
-            <Button 
-               onClick={() => {
-                 onDismiss();
-                 window.location.hash = `#track/${order.id}`;
-               }}
-               className="w-full rounded-2xl py-4 mt-2 bg-stone-100 text-stone-700 hover:bg-stone-200"
-            >
-               <Truck size={18} className="mr-2" /> Acompanhar Entrega
-            </Button>
-          )}
-
           <Button onClick={onDismiss} variant="orange" className="w-full rounded-2xl py-4 mt-2">
             Fechar Ticket
           </Button>
@@ -250,15 +237,10 @@ const OrderHistory = ({ clientPhone, clientName, setCurrentScreen, setCart, setV
   useEffect(() => {
     if (clientPhone) {
       setLoadingHistory(true); // eslint-disable-line react-hooks/set-state-in-effect
-      const q = query(collection(db, 'orders'), where('clientInfo.phone', '==', clientPhone), orderBy('createdAt', 'desc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setOrders(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order)));
-        setLoadingHistory(false);
-      }, (err) => {
-        console.error("Error fetching history:", err);
-        setLoadingHistory(false);
-      });
-      return () => unsubscribe();
+      axios.get(`/api/orders/user/${clientPhone}`)
+        .then(res => setOrders(res.data))
+        .catch(err => console.error("Error fetching history:", err))
+        .finally(() => setLoadingHistory(false));
     }
   }, [clientPhone]);
 
@@ -280,9 +262,9 @@ const OrderHistory = ({ clientPhone, clientName, setCurrentScreen, setCart, setV
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'pending': return 'Recebido';
-      case 'preparing': return 'Preparando';
-      case 'shipped': return 'Em Trânsito';
-      case 'completed': return 'Concluído';
+      case 'preparing': return 'Em Preparo';
+      case 'shipped': return 'Saiu para Entrega';
+      case 'completed': return 'Finalizado';
       case 'cancelled': return 'Cancelado';
       default: return status;
     }
@@ -408,10 +390,10 @@ const OrderHistory = ({ clientPhone, clientName, setCurrentScreen, setCart, setV
                 {order.status !== 'cancelled' && (
                   <div className="mb-8">
                     <div className="flex justify-between mb-2 px-1">
-                       <span className={`text-[9px] font-bold uppercase tracking-widest ${order.status === 'pending' || order.status === 'preparing' || order.status === 'shipped' || order.status === 'completed' ? 'text-amarena-green' : 'text-stone-300'}`}>Pedido</span>
-                       <span className={`text-[9px] font-bold uppercase tracking-widest ${order.status === 'preparing' || order.status === 'shipped' || order.status === 'completed' ? 'text-amarena-green' : 'text-stone-300'}`}>Preparo</span>
-                       <span className={`text-[9px] font-bold uppercase tracking-widest ${order.status === 'shipped' || order.status === 'completed' ? 'text-amarena-green' : 'text-stone-300'}`}>Entrega</span>
-                       <span className={`text-[9px] font-bold uppercase tracking-widest ${order.status === 'completed' ? 'text-amarena-green' : 'text-stone-300'}`}>Fim</span>
+                       <span className={`text-[9px] font-bold uppercase tracking-widest ${order.status === 'pending' || order.status === 'preparing' || order.status === 'shipped' || order.status === 'completed' ? 'text-amarena-green' : 'text-stone-300'}`}>Recebido</span>
+                       <span className={`text-[9px] font-bold uppercase tracking-widest ${order.status === 'preparing' || order.status === 'shipped' || order.status === 'completed' ? 'text-amarena-green' : 'text-stone-300'}`}>Em Preparo</span>
+                       <span className={`text-[9px] font-bold uppercase tracking-widest ${order.status === 'shipped' || order.status === 'completed' ? 'text-amarena-green' : 'text-stone-300'}`}>Saiu p/ Entrega</span>
+                       <span className={`text-[9px] font-bold uppercase tracking-widest ${order.status === 'completed' ? 'text-amarena-green' : 'text-stone-300'}`}>Finalizado</span>
                     </div>
                     <div className="h-1.5 w-full bg-stone-100 rounded-full overflow-hidden relative">
                        <motion.div 
@@ -514,51 +496,75 @@ const Button = ({ children, onClick, variant = 'primary', className = '', loadin
 const OrderTicket = ({ order }: { order: Order | null }) => {
   if (!order) return null;
   return (
-    <div className="print-only p-8 text-black font-mono w-[80mm] mx-auto bg-white">
-      <div className="text-center border-b border-black pb-4 mb-4">
-        <h2 className="text-xl font-bold uppercase">Amarena Sorvetes</h2>
-        <p className="text-xs uppercase">Passos - MG</p>
-        <p className="text-xs mt-1">--------------------------------</p>
+    <div className="print-only p-4 text-black font-mono w-[80mm] mx-auto bg-white mb-8">
+      {/* HEADER */}
+      <div className="text-center mb-3">
+        <h2 className="text-2xl font-black uppercase tracking-tighter">AMARENA SORVETES</h2>
+        <p className="text-[10px] font-bold uppercase mt-1">Passos - MG</p>
       </div>
-      <div className="mb-4">
-        <p className="text-sm font-bold uppercase">Pedido: #{order.id.slice(-6)}</p>
-        <p className="text-xs uppercase">Data: {new Date(order.createdAt).toLocaleString('pt-BR')}</p>
-        {order.clientInfo && (
-          <div className="mt-2 pt-2 border-t border-black">
-             <p className="text-[10px] font-bold uppercase">{order.clientInfo.deliveryType === 'delivery' ? 'ENTREGA' : 'RETIRADA'}</p>
-             <p className="text-sm font-bold uppercase">{order.clientInfo.name}</p>
-             {order.clientInfo.deliveryType === 'delivery' && (
-               <p className="text-sm uppercase font-bold">{order.clientInfo.address}</p>
-             )}
-             <p className="text-xs uppercase">Tel: {order.clientInfo.phone}</p>
-          </div>
-        )}
-        <p className="text-xs mt-1">--------------------------------</p>
+      
+      <p className="text-center font-bold mb-3">*** {order.clientInfo?.deliveryType === 'delivery' ? 'ENTREGA' : 'RETIRADA'} ***</p>
+
+      {/* SENHA/ORDER NUM */}
+      <div className="text-center border-y-2 border-black border-dashed py-3 mb-3">
+        <p className="text-xs font-bold uppercase mb-1">Senha do Pedido</p>
+        <p className="text-5xl font-black tracking-tighter">{order.id.slice(-4)}</p>
       </div>
-      <div className="mb-4">
+
+      <div className="text-[11px] mb-3 font-medium uppercase space-y-1">
+        <p>Data: {new Date(order.createdAt).toLocaleString('pt-BR')}</p>
+        <p>Ped: #{order.id.slice(-6)}</p>
+      </div>
+
+      <p className="text-center font-bold text-sm mb-2 border-b border-black pb-1">ITENS DO PEDIDO</p>
+      
+      <div className="mb-4 text-[12px] font-bold uppercase">
         {order.items.map((item, idx) => (
-          <div key={idx} className="flex justify-between text-xs items-start mb-1">
-            <span className="flex-1 uppercase">{item.quantity}x {item.name}</span>
-            <span>R$ {(item.price * item.quantity).toFixed(2)}</span>
+          <div key={idx} className="mb-2">
+            <div className="flex justify-between items-start">
+              <span className="flex-1 pr-2">{item.quantity}  {item.name}</span>
+              <span>{(item.price * item.quantity).toFixed(2)}</span>
+            </div>
           </div>
         ))}
       </div>
-      <div className="border-t border-black pt-4">
+
+      <div className="border-t border-black pt-2 text-[12px] uppercase">
         {order.deliveryFee && order.deliveryFee > 0 && (
-          <div className="flex justify-between text-xs mb-2">
-            <span className="uppercase">Taxa de Entrega</span>
-            <span>R$ {order.deliveryFee.toFixed(2)}</span>
+          <div className="flex justify-between mb-1 font-medium">
+            <span>TAXA ENTREGA</span>
+            <span>{order.deliveryFee.toFixed(2)}</span>
           </div>
         )}
-        <div className="flex justify-between font-bold text-sm">
-          <span className="uppercase">Total</span>
-          <span>R$ {order.total.toFixed(2)}</span>
+        <div className="flex justify-between font-black text-lg mt-2 pt-2 border-t border-black border-dashed">
+          <span>TOTAL R$</span>
+          <span>{order.total.toFixed(2)}</span>
         </div>
-        <p className="text-xs mt-1 uppercase">Pagamento: {order.paymentMethod}</p>
       </div>
-      <div className="text-center mt-8 text-[10px] uppercase">
-        <p>Obrigado pela preferência!</p>
-        <p>Amarena Sorvetes</p>
+
+      <div className="mt-4 pt-2 border-t text-[11px] font-bold uppercase">
+        <p>PAGAMENTO: {order.paymentMethod}</p>
+      </div>
+
+      {order.clientInfo && (
+        <div className="mt-4 pt-4 border-t-2 border-black border-dashed">
+           <p className="text-center font-bold text-sm mb-2">DADOS DO CLIENTE</p>
+           <div className="text-[12px] uppercase font-bold space-y-1">
+             <p>NOME: {order.clientInfo.name}</p>
+             <p>TEL: {order.clientInfo.phone}</p>
+             {order.clientInfo.deliveryType === 'delivery' && (
+               <div>
+                  <p className="mt-2">ENDEREÇO:</p>
+                  <p className="font-black text-sm">{order.clientInfo.address}</p>
+               </div>
+             )}
+           </div>
+        </div>
+      )}
+
+      <div className="text-center mt-6 text-[10px] uppercase font-bold">
+        <p className="mb-1">Obrigado pela preferência!</p>
+        <p>Volte Sempre</p>
       </div>
     </div>
   );
@@ -665,60 +671,59 @@ const DailyClosingTicket = ({ orders, operatorName }: { orders: Order[], operato
   const total = todayOrders.reduce((acc, curr) => acc + curr.total, 0);
   
   const methods = {
-    'delivery_payment': { label: 'DINHEIRO/ENTREGA', total: 0 },
-    'pix': { label: 'PIX (MANUAL/APP)', total: 0 },
-    'card': { label: 'CARTÃO (APP)', total: 0 },
-    'others': { label: 'OUTROS', total: 0 }
+    'delivery_payment': { label: 'Dinh/Pag na Entrega', total: 0 },
+    'pix': { label: 'PIX/Transferência', total: 0 },
+    'card': { label: 'Cartão APP', total: 0 },
+    'others': { label: 'Outros/Mercado Pago', total: 0 }
   };
 
   todayOrders.forEach(o => {
     const m = o.paymentMethod?.toLowerCase() || '';
-    if (m.includes('entrega')) methods.delivery_payment.total += o.total;
+    if (m.includes('entrega') || m.includes('dinheiro') || m.includes('maquininha')) methods.delivery_payment.total += o.total;
     else if (m.includes('pix')) methods.pix.total += o.total;
-    else if (m.includes('card') || m.includes('mercado')) methods.card.total += o.total;
+    else if (m.includes('card') || m.includes('mercado') || m.includes('crédito') || m.includes('débito')) methods.card.total += o.total;
     else methods.others.total += o.total;
   });
 
   return (
-    <div className="print-only p-4 text-black font-mono w-[80mm] mx-auto bg-white text-[12px] leading-tight">
-      <div className="text-center border-b border-dashed border-black pb-3 mb-3">
-        <h2 className="text-lg font-bold uppercase tracking-tighter">Amarena Sorvetes</h2>
-        <p className="font-bold">FECHAMENTO DE CAIXA</p>
-        <p className="text-[10px]">------------------------------------------</p>
-        <p>Data: {new Date().toLocaleDateString('pt-BR')}</p>
-        <p>Hora: {new Date().toLocaleTimeString('pt-BR')}</p>
+    <div className="print-only p-4 text-black font-mono w-[80mm] mx-auto bg-white text-[12px] leading-tight mb-8">
+      {/* HEADER */}
+      <div className="text-center mb-4">
+        <h2 className="text-2xl font-black uppercase tracking-tighter">AMARENA SORVETES</h2>
+        <p className="font-bold border-y-2 border-black border-dashed py-2 my-2 uppercase text-sm">FECHAMENTO DE CAIXA</p>
+        <p className="uppercase text-[11px] font-bold">Data: {new Date().toLocaleDateString('pt-BR')}  Hora: {new Date().toLocaleTimeString('pt-BR')}</p>
+      </div>
+
+      <div className="mb-4 text-sm font-bold border-b border-black pb-2">
+        <p className="uppercase text-center">OPERADOR: {operatorName || 'Admin'}</p>
       </div>
 
       <div className="mb-4">
-        <p className="font-bold uppercase mb-1">OPERADOR: {operatorName || 'Admin'}</p>
-        <p className="text-[10px]">------------------------------------------</p>
+        <p className="font-bold uppercase text-[12px] mb-2 text-center pb-1">RESUMO POR PAGAMENTO</p>
+        <div className="space-y-1">
+          {Object.values(methods).filter(m => m.total > 0).map(m => (
+            <div key={m.label} className="flex justify-between items-center text-[12px] uppercase">
+               <span>{m.label}</span>
+               <span className="font-bold">{m.total.toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <div className="mb-4">
-        <p className="font-bold uppercase text-[11px] mb-2 border-b border-dashed border-black pb-1 inline-block">RESUMO POR PAGAMENTO</p>
-        {Object.values(methods).filter(m => m.total > 0 || m.label === 'TOTAL GERAL').map(m => (
-          <div key={m.label} className="flex justify-between items-center mb-1">
-             <span className="uppercase text-[11px]">{m.label}</span>
-             <span className="font-bold">R$ {m.total.toFixed(2)}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="border-t border-dashed border-black pt-2 mb-4">
-        <div className="flex justify-between font-bold text-[14px] mt-1">
+      <div className="border-t-2 border-black border-dashed pt-3 mb-4">
+        <div className="flex justify-between text-[13px] uppercase font-bold mt-1 mb-2">
+          <span>QTD PEDIDOS APROVADOS</span>
+          <span>{todayOrders.length}</span>
+        </div>
+        <div className="flex justify-between font-black text-xl mt-2 border-t border-black pb-2 pt-2">
           <span>TOTAL BRUTO</span>
           <span>R$ {total.toFixed(2)}</span>
         </div>
-        <div className="flex justify-between text-[11px] mt-1">
-          <span>PEDIDOS HOJE</span>
-          <span>{todayOrders.length}</span>
-        </div>
       </div>
 
-      <div className="text-center mt-6 pt-4 border-t border-dashed border-black">
-        <p className="text-[10px] uppercase font-bold">Relatório Gerencial</p>
-        <p className="text-[9px]">Amarena Premium Software</p>
-        <p className="text-[8px] mt-2">© {new Date().getFullYear()} - Todos os direitos reservados</p>
+      <div className="text-center mt-8 text-[10px] uppercase font-bold">
+        <p className="mb-1">Amarena Premium Software</p>
+        <p>Documento Auxiliar de Venda</p>
       </div>
     </div>
   );
@@ -759,6 +764,7 @@ export default function App() {
   const [ordersSearchTerm, setOrdersSearchTerm] = useState('');
   const [closings, setClosings] = useState<any[]>([]);
   const [publicTrackingOrderId, setPublicTrackingOrderId] = useState<string | null>(null);
+  const [driverOrderId, setDriverOrderId] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [databaseConnected, setDatabaseConnected] = useState<boolean | null>(null);
@@ -807,8 +813,7 @@ export default function App() {
         try {
             const token = await getToken(messaging, { vapidKey: 'BDJUqJ7PkeBSMALd7QZaRd5Lmvi1gQoUMDW49KPRBV83rLBjVUm3t0Aj4fE-jl5b-4voLAGmUHSEuZiqCTNbGgk' });
             if (token) {
-                // Replacing /api/push-token with direct firestore write
-                await setDoc(doc(db, 'pushTokens', token), { token, updatedAt: new Date().toISOString() });
+                await axios.post('/api/push-token', { token });
                 localStorage.setItem('push_registered', 'true');
             }
         } catch (error) {
@@ -838,9 +843,8 @@ export default function App() {
   const fetchUserOrders = async () => {
     if (!clientPhone) return;
     try {
-      const q = query(collection(db, 'orders'), where('clientInfo.phone', '==', clientPhone), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(q);
-      setUserOrders(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order)));
+      const res = await axios.get(`/api/orders/user/${clientPhone}`);
+      setUserOrders(res.data);
     } catch (err) {
       console.error("Error fetching user history:", err);
     }
@@ -1034,6 +1038,12 @@ export default function App() {
           setPublicTrackingOrderId(orderId);
           setCurrentScreen('home'); // Just in case, though public tracker will override
         }
+      } else if (hash.startsWith('#driver/')) {
+        const orderId = hash.split('/')[1];
+        if (orderId) {
+          setDriverOrderId(orderId);
+          setCurrentScreen('home'); // Override
+        }
       }
     };
 
@@ -1043,43 +1053,58 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
+  const fetchProducts = async () => {
+    try {
+      const res = await axios.get('/api/products');
+      setProducts(res.data);
+      preloadImages(res.data);
+    } catch (err) {
+      console.error("Error fetching products:", err);
+    }
+  };
+
+  const fetchOrders = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await axios.get('/api/admin/orders', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+      });
+      setOrders(res.data);
+      setLastSync(new Date());
+      setDatabaseConnected(true);
+    } catch (err) {
+      console.error("Error fetching orders:", err);
+      setDatabaseConnected(false);
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        handleLogout();
+        setToast({ message: "Sessão expirada. Faça login novamente.", visible: true });
+        setTimeout(() => setToast({ message: '', visible: false }), 4000);
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const res = await axios.get('/api/settings');
+      setSettings(res.data);
+    } catch (err) {
+      console.error("Error fetching settings:", err);
+    }
+  };
+
   const fetchAnalytics = async () => {
     if (!isAdminLoggedIn) return;
     try {
-      const today = new Date().toISOString().split('T')[0];
-      
-      const visitsSnap = await getDocs(collection(db, 'daily_visits'));
-      let totalVisits = 0;
-      let todayVisits = 0;
-      visitsSnap.forEach(d => {
-        const data = d.data();
-        totalVisits += data.count || 0;
-        if (d.id === today || data.date === today) todayVisits = data.count || 0;
+      const res = await axios.get('/api/analytics/stats', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
       });
-
-      setAnalyticsStats(prev => ({
-        todayVisits: todayVisits,
-        totalVisits: totalVisits,
-        totalOrders: prev?.totalOrders || orders.length,
-        totalClients: prev?.totalClients || new Set(orders.map(o => o.clientInfo?.phone)).size
-      }));
+      setAnalyticsStats(res.data);
     } catch (err) {
       console.error("Error fetching analytics:", err);
     }
   };
-
-  useEffect(() => {
-    if (isAdminLoggedIn) {
-      const uniqueClients = new Set(orders.map(o => o.clientInfo?.phone)).size;
-      setAnalyticsStats({
-        todayVisits: analyticsStats?.todayVisits || 0,
-        totalVisits: analyticsStats?.totalVisits || 0,
-        totalOrders: orders.length,
-        totalClients: uniqueClients
-      });
-      fetchAnalytics();
-    }
-  }, [orders, isAdminLoggedIn]);
 
   const trackVisit = async () => {
     try {
@@ -1087,10 +1112,7 @@ export default function App() {
       const lastVisit = localStorage.getItem('amarena_last_visit');
       const today = new Date().toISOString().split('T')[0];
       if (lastVisit !== today) {
-        await setDoc(doc(db, 'daily_visits', today), {
-          date: today,
-          count: increment(1)
-        }, { merge: true });
+        await axios.post('/api/analytics/visit');
         localStorage.setItem('amarena_last_visit', today);
       }
     } catch (err) {
@@ -1098,50 +1120,47 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    let unsubs: (() => void)[] = [];
-
-    setIsInitialLoading(true);
-
-    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Product));
-      setProducts(data);
-      preloadImages(data);
-    });
-    unsubs.push(unsubProducts);
-
-    const unsubSettings = onSnapshot(doc(db, 'settings', 'main'), (snapshot) => {
-      if (snapshot.exists()) {
-        setSettings(snapshot.data() as AppSettings);
-      } else {
-        setSettings({} as AppSettings);
-      }
-    });
-    unsubs.push(unsubSettings);
-
-    if (isAdminLoggedIn) {
-      const unsubOrders = onSnapshot(query(collection(db, 'orders'), orderBy('createdAt', 'desc')), (snapshot) => {
-        setOrders(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order)));
-        setLastSync(new Date());
-        setDatabaseConnected(true);
-      }, (err) => {
-        console.error("Orders listener error", err);
-        setDatabaseConnected(false);
+  const fetchClosings = async () => {
+    try {
+      const res = await axios.get('/api/daily-closings', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
       });
-      unsubs.push(unsubOrders);
-
-      const unsubClosings = onSnapshot(query(collection(db, 'daily_closings'), orderBy('createdAt', 'desc')), (snapshot) => {
-        setClosings(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
-      });
-      unsubs.push(unsubClosings);
-      
-      fetchAnalytics();
+      setClosings(res.data);
+    } catch (err) {
+      console.error("Error fetching closings:", err);
     }
+  };
 
-    setTimeout(() => setIsInitialLoading(false), 300);
+  useEffect(() => {
+    let isMounted = true;
 
-    return () => {
-      unsubs.forEach(u => u());
+    const load = async () => {
+      if (!isMounted) return;
+      try {
+        const promises = [fetchProducts(), fetchSettings()];
+        if (isAdminLoggedIn) {
+          promises.push(fetchOrders());
+          promises.push(fetchClosings());
+        }
+        await Promise.all(promises);
+      } finally {
+        setTimeout(() => setIsInitialLoading(false), 300); // Reduced delay for faster perceived loading
+      }
+    };
+    load();
+
+    // Auto-refresh data to keep the store front and admin panel synced
+    const intervalId = setInterval(() => {
+      fetchProducts();
+      if (isAdminLoggedIn) {
+        fetchOrders();
+        fetchClosings();
+      }
+    }, 30000); // Every 30 seconds
+
+    return () => { 
+      isMounted = false; 
+      clearInterval(intervalId);
     };
   }, [isAdminLoggedIn]);
 
@@ -1171,17 +1190,24 @@ export default function App() {
       setLoading(true);
       const token = localStorage.getItem('amarena_admin_token');
       
-      const payload = { ...editingProduct };
-      delete payload.id; // ensure no id is written
-      
+      let response;
       if (editingProduct?.id) {
-        await updateDoc(doc(db, 'products', editingProduct.id), payload);
+        response = await axios.put(`/api/products/${editingProduct.id}`, editingProduct, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
       } else {
-        await addDoc(collection(db, 'products'), { ...payload, createdAt: new Date().toISOString() });
+        response = await axios.post('/api/products', editingProduct, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
       }
 
-      setEditingProduct(null);
-      alert("Produto salvo com sucesso!");
+      if (response.status === 200 || response.status === 201) {
+        setEditingProduct(null);
+        fetchProducts();
+        alert("Produto salvo com sucesso!");
+      } else {
+        throw new Error(`Erro do servidor: ${response.status} - ${JSON.stringify(response.data)}`);
+      }
     } catch (err: unknown) {
       console.error("DEBUG ERR:", err);
       const errorMessage = (err instanceof Error) ? err.message : "Erro desconhecido ao salvar produto.";
@@ -1194,7 +1220,11 @@ export default function App() {
   const handleDeleteProduct = async (id: string) => {
     if (!confirm("Deseja realmente excluir este produto?")) return;
     try {
-      await deleteDoc(doc(db, 'products', id));
+      const token = localStorage.getItem('amarena_admin_token');
+      await axios.delete(`/api/products/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchProducts();
     } catch (err) {
       console.error(err);
       alert("Erro ao excluir produto.");
@@ -2442,13 +2472,25 @@ export default function App() {
                        </div>
                        <div className="flex items-center gap-3">
                           <button 
+                            onClick={() => {
+                              fetchOrders();
+                              fetchClosings();
+                              fetchProducts();
+                            }}
+                            className={`p-3 bg-white border border-stone-100 rounded-2xl text-stone-400 hover:text-amarena-purple transition-all ${isSyncing ? 'animate-spin' : ''}`}
+                            title="Atualizar Dados"
+                          >
+                            <RefreshCw size={20} />
+                          </button>
+                          <button 
                             onClick={async () => {
                            const nextStatus = !(settings?.isStoreOpen ?? true);
                            const newSettings = { ...settings, isStoreOpen: nextStatus };
-                           // apply optimistic update immediately
-                           setSettings(newSettings as any);
+                           setSettings(newSettings);
                            try {
-                             await updateDoc(doc(db, 'settings', 'main'), { isStoreOpen: nextStatus });
+                             await axios.put('/api/settings', newSettings, {
+                               headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+                             });
                            } catch (err) {
                              console.error("Error updating store status:", err);
                              alert("Erro ao atualizar status da loja");
@@ -2553,6 +2595,12 @@ export default function App() {
                           {orders.length === 0 && (
                             <div className="text-center p-12 bg-stone-50 rounded-[32px] border-2 border-dashed border-stone-200">
                                <p className="text-stone-400 font-bold">Nenhum pedido encontrado no banco de dados.</p>
+                               <button 
+                                 onClick={() => fetchOrders()}
+                                 className="mt-4 text-xs font-black text-amarena-purple uppercase tracking-widest underline"
+                               >
+                                  Tentar Sincronizar Agora
+                               </button>
                             </div>
                           )}
                        </div>
@@ -2675,10 +2723,13 @@ export default function App() {
                                    paymentMethods: methods
                                  };
 
-                                 await addDoc(collection(db, 'daily_closings'), { ...closingData, createdAt: new Date().toISOString() });
+                                 await axios.post('/api/daily-closings', closingData, {
+                                   headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+                                 });
 
                                  setToast({ message: 'Conferência Registrada!', visible: true });
                                  setTimeout(() => setToast({ message: '', visible: false }), 3000);
+                                 fetchClosings();
                                  setOperatorName('');
                                } catch (err) {
                                  console.error("Erro ao salvar fechamento:", err);
@@ -2786,11 +2837,12 @@ export default function App() {
                               
                               setLoading(true);
                               try {
-                                const batch = writeBatch(db);
                                 for (const order of activeOrders) {
-                                  batch.update(doc(db, 'orders', order.id), { status: 'cancelled' });
+                                  await axios.patch(`/api/admin/orders/${order.id}`, { status: 'cancelled' }, {
+                                    headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+                                  });
                                 }
-                                await batch.commit();
+                                fetchOrders();
                                 alert("Pedidos limpos com sucesso!");
                               } catch (err) {
                                 alert("Erro ao limpar alguns pedidos.");
@@ -2811,13 +2863,10 @@ export default function App() {
                               
                               setLoading(true);
                               try {
-                                const q = query(collection(db, 'orders'), where('status', 'in', ['completed', 'cancelled']), where('archived', '!=', true));
-                                const archiveDocs = await getDocs(q);
-                                const batch = writeBatch(db);
-                                archiveDocs.forEach(d => {
-                                  batch.update(d.ref, { archived: true, updatedAt: new Date().toISOString() });
+                                await axios.post('/api/admin/orders/archive-completed', {}, {
+                                  headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
                                 });
-                                await batch.commit();
+                                fetchOrders();
                                 setToast({ message: "Pedidos arquivados com sucesso!", visible: true });
                                 setTimeout(() => setToast({ message: '', visible: false }), 3000);
                               } catch (err) {
@@ -2832,6 +2881,9 @@ export default function App() {
                           </button>
                         )}
 
+                        <button onClick={fetchOrders} className="p-2.5 bg-stone-100 rounded-xl text-stone-500 hover:bg-stone-200 transition-colors" title="Atualizar Pedidos">
+                          <History size={18} />
+                        </button>
                       </div>
                     </div>
 
@@ -2980,42 +3032,68 @@ export default function App() {
                               {order.status === 'pending' && (
                                 <button 
                                   onClick={async () => {
-                                    await updateDoc(doc(db, 'orders', order.id), { status: 'preparing' });
+                                    await axios.patch(`/api/admin/orders/${order.id}`, { status: 'preparing' }, {
+                                      headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+                                    });
+                                    fetchOrders();
                                   }}
                                   className="flex-1 md:flex-none p-4 bg-blue-500 text-white rounded-2xl hover:bg-blue-600 transition-all font-bold flex items-center justify-center gap-2 text-sm"
                                 >
                                   <Package size={20} /> Preparar
                                 </button>
                               )}
-                              {order.status === 'preparing' && order.clientInfo?.deliveryType === 'delivery' && (
+                              {order.status === 'preparing' && (
                                 <button 
                                   onClick={async () => {
-                                    await updateDoc(doc(db, 'orders', order.id), { status: 'shipped' });
+                                    await axios.patch(`/api/admin/orders/${order.id}`, { status: 'shipped' }, {
+                                      headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+                                    });
+                                    fetchOrders();
                                   }}
                                   className="flex-1 md:flex-none p-4 bg-purple-500 text-white rounded-2xl hover:bg-purple-600 transition-all font-bold flex items-center justify-center gap-2 text-sm"
                                 >
                                   <MapPin size={20} /> Saiu para Entrega
                                 </button>
                               )}
-                              {(order.status === 'shipped' || (order.status === 'preparing' && order.clientInfo?.deliveryType !== 'delivery')) && (
+                              {(order.status === 'shipped' || order.status === 'preparing') && (
                                 <button 
                                   onClick={async () => {
-                                    await updateDoc(doc(db, 'orders', order.id), { status: 'completed' });
+                                    await axios.patch(`/api/admin/orders/${order.id}`, { status: 'completed' }, {
+                                      headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+                                    });
+                                    fetchOrders();
                                   }}
                                   className="flex-1 md:flex-none p-4 bg-green-500 text-white rounded-2xl hover:bg-green-600 transition-all font-bold flex items-center justify-center gap-2 text-sm"
                                 >
-                                  <Check size={20} /> Fechar Pedido
+                                  <Check size={20} /> Entregue
                                 </button>
                               )}
                               {(order.status === 'pending' || order.status === 'preparing') && (
                                 <button 
                                   onClick={async () => {
                                     if (!confirm("Deseja realmente cancelar este pedido?")) return;
-                                    await updateDoc(doc(db, 'orders', order.id), { status: 'cancelled' });
+                                    await axios.patch(`/api/admin/orders/${order.id}`, { status: 'cancelled' }, {
+                                      headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+                                    });
+                                    fetchOrders();
                                   }}
                                   className="flex-1 md:flex-none p-4 bg-red-100 text-red-600 rounded-2xl hover:bg-red-200 transition-all font-bold flex items-center justify-center gap-2 text-sm"
                                 >
                                   <X size={20} /> Cancelar
+                                </button>
+                              )}
+                              
+                              {order.clientInfo.deliveryType === 'delivery' && (order.status === 'preparing' || order.status === 'shipped') && (
+                                <button
+                                  onClick={() => {
+                                    const link = `${window.location.origin}/#driver/${order.id}`;
+                                    navigator.clipboard.writeText(`Link de Entrega: ${link}`);
+                                    setToast({ message: "Link do entregador copiado!", visible: true });
+                                    setTimeout(() => setToast({ message: "", visible: false }), 3000);
+                                  }}
+                                  className="flex-1 md:flex-none p-4 bg-stone-100 text-stone-700 rounded-2xl hover:bg-stone-200 transition-all font-bold flex items-center justify-center gap-2 text-sm"
+                                >
+                                  <Copy size={20} /> Link do Entregador
                                 </button>
                               )}
                               {(order.status === 'completed' || order.status === 'cancelled') && !order.archived && (
@@ -3023,7 +3101,10 @@ export default function App() {
                                   onClick={async () => {
                                     try {
                                       setLoading(true);
-                                      await updateDoc(doc(db, 'orders', order.id), { archived: true });
+                                      await axios.patch(`/api/admin/orders/${order.id}`, { archived: true }, {
+                                        headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+                                      });
+                                      fetchOrders();
                                       setToast({ message: "Pedido arquivado com sucesso!", visible: true });
                                       setTimeout(() => setToast({ message: '', visible: false }), 3000);
                                     } catch (err) {
@@ -3042,7 +3123,10 @@ export default function App() {
                                   onClick={async () => {
                                     try {
                                       setLoading(true);
-                                      await updateDoc(doc(db, 'orders', order.id), { archived: false });
+                                      await axios.patch(`/api/admin/orders/${order.id}`, { archived: false }, {
+                                        headers: { Authorization: `Bearer ${localStorage.getItem('amarena_admin_token')}` }
+                                      });
+                                      fetchOrders();
                                       setToast({ message: "Pedido restaurado!", visible: true });
                                       setTimeout(() => setToast({ message: '', visible: false }), 3000);
                                     } catch (err) {
@@ -3264,11 +3348,13 @@ export default function App() {
                         </div>
                         <button 
                           onClick={async () => {
+                            const token = localStorage.getItem('amarena_admin_token');
                             try {
-                              if (settings) {
-                                await updateDoc(doc(db, 'settings', 'main'), settings);
-                              }
+                              await axios.put('/api/settings', settings, { 
+                                headers: { Authorization: `Bearer ${token}` } 
+                              });
                               alert('Configurações salvas com sucesso!');
+                              await fetchSettings(); // Refresh UI
                             } catch (error) {
                               console.error("Save error:", error);
                               alert('Erro ao salvar configurações.');
@@ -3482,15 +3568,12 @@ export default function App() {
                                           <td className="px-6 py-4 font-bold text-stone-700">R$ {p.price.toFixed(2)}</td>
                                            <td className="px-6 py-4">
                                               <button 
-                                                onClick={async () => {
+                                                onClick={() => {
                                                   const activeState = !(p.active ?? true);
-                                                  const payload = { ...p, active: activeState };
-                                                  delete (payload as any).id;
-                                                  try {
-                                                    await updateDoc(doc(db, 'products', p.id), payload);
-                                                  } catch(e) {
-                                                    console.error("Error updating active state", e);
-                                                  }
+                                                  const token = localStorage.getItem('amarena_admin_token');
+                                                  axios.put(`/api/products/${p.id}`, { ...p, active: activeState }, {
+                                                    headers: { Authorization: `Bearer ${token}` }
+                                                  }).then(fetchProducts);
                                                 }}
                                                 className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all border shadow-sm ${ (p.active ?? true) ? 'bg-green-50 text-amarena-green border-green-100 hover:bg-green-100' : 'bg-red-50 text-red-500 border-red-100 hover:bg-red-100' }`}
                                               >
@@ -3554,7 +3637,7 @@ export default function App() {
               return;
             }
 
-            const res = await addDoc(collection(db, 'orders'), {
+            const res = await axios.post('/api/orders', {
               items: cart,
               total: total,
               deliveryFee: deliveryFee,
@@ -3564,11 +3647,9 @@ export default function App() {
                 phone: clientPhone,
                 deliveryType,
                 address: deliveryType === 'delivery' ? `${address}, ${addressNumber} ${apartment ? `- Apt ${apartment}` : ''} ${neighborhood ? `- Bairro ${neighborhood}` : ''}` : 'Retirada na Sorveteria'
-              },
-              status: "pending",
-              createdAt: new Date().toISOString()
+              }
             });
-            setLastOrderId(res.id);
+            setLastOrderId(res.data.id);
             fetchUserOrders();
             setCurrentScreen('success');
             setCart([]);
@@ -3887,6 +3968,18 @@ export default function App() {
       {/* Actual Hidden Ticket for Browser Printing */}
       <OrderTicket order={printOrder} />
       <DailyClosingTicket orders={orders} operatorName={operatorName} />
+
+      <AnimatePresence>
+        {driverOrderId && (
+          <DriverSingleOrderConsole 
+            orderId={driverOrderId} 
+            onClose={() => {
+               setDriverOrderId(null);
+               window.location.hash = '';
+            }} 
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {publicTrackingOrderId && (

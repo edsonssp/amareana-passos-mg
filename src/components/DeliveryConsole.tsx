@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
-import { Truck, MapPin, CheckCircle, Navigation, Phone, Clock, ChevronRight, Map as MapIcon } from 'lucide-react';
+import { Truck, MapPin, CheckCircle, Navigation, Phone, Clock, ChevronRight, Map as MapIcon, Loader2 } from 'lucide-react';
 import { Order } from '../types';
 import { OrderLiveTracker } from './OrderLiveTracker';
 
