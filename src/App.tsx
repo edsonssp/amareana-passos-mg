@@ -1296,8 +1296,42 @@ export default function App() {
   ];
 
   const acaiOptions = {
-    laranjas: ['Bolacha oreo triturada', 'Bombom Ouro branco', 'Bombom Sonho de valsa', 'Castanha de caju', 'Cereja', 'Disquete', 'Gotas de Chocolate'],
-    verdes: ['Banana', 'Beijinho cremoso', 'Cobertura de Chocolate', 'Cobertura de Morango', 'Granola', 'Leite condensado', 'Leite em Pó']
+    laranjas: [
+      'Bis',
+      'Bolacha Oreo triturada',
+      'Bombom ouro branco',
+      'Bombom sonho de valsa',
+      'Brigadeiro cremoso',
+      'Castanha de caju',
+      'Cereja',
+      'Disquete',
+      'Gotas de chocolate',
+      'Kiwi',
+      'Morango',
+      'Mousse de chocolate',
+      'Mousse de maracujá',
+      'Mousse de ninho',
+      'Ovomaltine',
+      'Power Ball'
+    ],
+    verdes: [
+      'Amendoim',
+      'Banana',
+      'Beijinho cremoso',
+      'Cobertura de chocolate',
+      'Cobertura de morango',
+      'Leite condensado',
+      'Leite em pó',
+      'Mel',
+      'Passas',
+      'Polpa de morango',
+      'Sorvete de creme',
+      'Sorvete de ninho trufado',
+      'Sorvete de Nutella',
+      'Sucrilhos',
+      'Uva',
+      'Chantilly'
+    ]
   };
 
   const paidAddons = [
