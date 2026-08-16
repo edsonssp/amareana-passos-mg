@@ -58,12 +58,16 @@ body {
       width: 80mm !important;
       max-width: 80mm !important;
       margin: 0 auto !important;
-      padding: 2mm 2mm 4mm 2mm !important;
+      padding: 2mm 2mm 6mm 2mm !important;
       box-sizing: border-box !important;
-      page-break-after: avoid !important;
+      page-break-after: always !important;
       page-break-inside: avoid !important;
-      break-after: avoid !important;
+      break-after: page !important;
       break-inside: avoid !important;
+      color: #000000 !important;
+      font-family: 'Courier New', Courier, 'Consolas', monospace !important;
+      -webkit-font-smoothing: antialiased !important;
+      line-height: 1.25 !important;
     }
   }
 
